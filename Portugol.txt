@@ -1,0 +1,27 @@
+Algoritmo "Acordar"
+
+INÍCIO
+
+    1 - Abrir os olhos
+    2 - Levantar da cama
+    3 - Caminhar até o banheiro
+    4 - Pegar a escova de dentes
+    5 - Pegar o tubo de pasta de dentes
+
+    Se o tubo estiver com a tampa aberta:
+        - Espremer o tubo para colocar pasta na escova de dentes
+        - Fechar a tampa
+        - Escovar os dentes
+        - Enxaguar a boca
+        
+    Se o tubo não estiver com a tampa aberta:
+        - Abrir a tampa
+        - Espremer o tubo para colocar pasta na escova de dentes
+        - Fechar a tampa
+        - Escovar os dentes
+        - Enxaguar a boca
+
+    6 - Guardar o tubo de pasta de dentes
+    7 - Guardar a escova de dentes
+    
+FIM
