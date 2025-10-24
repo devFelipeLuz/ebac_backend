@@ -28,8 +28,9 @@ public class InventoryServiceTest {
     public InventoryServiceTest() {
         IInventoryDAO stockDAO = new InventoryDAOMock();
         IProductDAO productDAO = new ProductDAOMock();
+
+        productService = new ProductService(productDAO, stockDAO);
         stockService = new InventoryService(stockDAO);
-        productService = new ProductService(productDAO);
     }
 
     @Before

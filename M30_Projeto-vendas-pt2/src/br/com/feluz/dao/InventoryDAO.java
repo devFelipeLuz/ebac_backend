@@ -3,14 +3,13 @@ package br.com.feluz.dao;
 import br.com.feluz.dao.factory.InventoryFactory;
 import br.com.feluz.dao.generics.GenericDAO;
 import br.com.feluz.dao.interfaces.IInventoryDAO;
+import br.com.feluz.dao.interfaces.Persistence;
 import br.com.feluz.dao.jdbc.ConnectionDB;
 import br.com.feluz.domain.Inventory;
 import br.com.feluz.exceptions.DAOException;
+import com.sun.source.tree.TryTree;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -37,8 +36,8 @@ public class InventoryDAO extends GenericDAO<Inventory, String> implements IInve
     @Override
     protected String getQueryInsert() {
         StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO TB_ESTOQUE (ID, ID_PRODUTO_FK, CODIGO, QUANTIDADE_DISPONIVEL, LOCAL) ");
-        sb.append("VALUES (nextval('SQ_ESTOQUE'),?,?,?,?)");
+        sb.append("INSERT INTO TB_ESTOQUE (ID_PRODUTO_FK, CODIGO, QUANTIDADE_DISPONIVEL, LOCAL) ");
+        sb.append("VALUES (?,?,?,?)");
         return sb.toString();
     }
 
@@ -48,6 +47,15 @@ public class InventoryDAO extends GenericDAO<Inventory, String> implements IInve
         stmInsert.setString(2, entity.getCode());
         stmInsert.setInt(3, entity.getAvailableQuantity());
         stmInsert.setString(4, entity.getLocation());
+    }
+
+    public String QueryInventoryProduct() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT E.ID AS ID_ESTOQUE, E.CODIGO AS CODIGO_ESTOQUE, E.QUANTIDADE_DISPONIVEL, E.LOCAL, ");
+        sb.append("P.ID AS ID_PRODUTO, P.CODIGO AS CODIGO_PRODUTO, P.NOME, P.DESCRICAO, P.VALOR, P.CATEGORIA ");
+        sb.append("FROM TB_ESTOQUE E ");
+        sb.append("INNER JOIN TB_PRODUTO P ON P.ID = E.ID_PRODUTO_FK");
+        return sb.toString();
     }
 
     private String getQuerySelect() {
@@ -94,26 +102,40 @@ public class InventoryDAO extends GenericDAO<Inventory, String> implements IInve
 
     @Override
     public Inventory find(String codigo) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            StringBuilder sb = new StringBuilder(getQuerySelect());
-            sb.append("WHERE E.CODIGO = ?");
-            stm = dataBase.prepareStatement(sb.toString());
+        try (Connection dataBase = ConnectionDB.getConnection(); PreparedStatement stm = dataBase.prepareStatement(getQuerySelect() + "WHERE E.CODIGO = ?")) {
             setParamsSelect(stm, codigo);
-            rs = stm.executeQuery();
 
-            if (rs.next()) {
-                Inventory stock = InventoryFactory.convert(rs);
-                return stock;
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    Inventory stock = InventoryFactory.convert(rs);
+                    return stock;
 
+                }
             }
+
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
+        }
+        return null;
+    }
+
+    @Override
+    public Inventory findByProduct(Long productId) throws DAOException, SQLException {
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(QueryInventoryProduct() + "WHERE E.ID_PRODUTO_FK = ?")) {
+            stm.setLong(1, productId);
+
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    Inventory stock = InventoryFactory.convert(rs);
+                    return stock;
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new DAOException("ERRO AO CONSULTA OBJETO", e);
         }
         return null;
     }
@@ -121,13 +143,10 @@ public class InventoryDAO extends GenericDAO<Inventory, String> implements IInve
     @Override
     public Collection<Inventory> findAll() throws SQLException, DAOException {
         List<Inventory> stockList = new ArrayList<>();
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            stm = dataBase.prepareStatement(getQuerySelect());
-            rs = stm.executeQuery();
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQuerySelect())) {
+            ResultSet rs = stm.executeQuery();
 
             while (rs.next()) {
                 Inventory stock = InventoryFactory.convert(rs);
@@ -135,9 +154,8 @@ public class InventoryDAO extends GenericDAO<Inventory, String> implements IInve
             }
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
         return stockList;
     }
+
 }

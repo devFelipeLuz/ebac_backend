@@ -1,8 +1,7 @@
 package br.com.feluz.services;
 
-import br.com.feluz.dao.InventoryDAO;
-import br.com.feluz.dao.ProductQuantityDAO;
-import br.com.feluz.dao.SaleDAO;
+import br.com.feluz.dao.interfaces.IInventoryDAO;
+import br.com.feluz.dao.interfaces.IProductQuantityDAO;
 import br.com.feluz.dao.interfaces.ISaleDAO;
 import br.com.feluz.domain.Inventory;
 import br.com.feluz.domain.ProductQuantity;
@@ -20,69 +19,52 @@ import java.util.List;
 
 
 public class SaleService extends GenericService<Sale, String> implements ISaleService {
+    private final ISaleDAO saleDAO;
+    private final IProductQuantityDAO prodQDAO;
+    private final IInventoryDAO inventoryDAO;
 
-    public SaleService(ISaleDAO dao) {
-        super(dao);
+    public SaleService(ISaleDAO saleDAO, IProductQuantityDAO prodQDAO, IInventoryDAO inventoryDAO) {
+        super(saleDAO);
+        this.saleDAO = saleDAO;
+        this.prodQDAO = prodQDAO;
+        this.inventoryDAO = inventoryDAO;
     }
-}
 
-/*
-private final SaleDAO saleDAO;
-private final ProductQuantityDAO prodQDAO;
-private final InventoryDAO inventoryDAO;
+    public void finalizeSale(Sale sale) throws DAOException, TableException, MoreThanOneRegisterException, SQLException, TipoChaveNaoEncontradaException {
+        saleDAO.finishSale(sale);
+        List<ProductQuantity> itens = prodQDAO.findBySale(sale.getId());
 
-public SaleService(SaleDAO saleDAO, ProductQuantityDAO prodQDAO, InventoryDAO inventoryDAO) {
-    super(saleDAO);
-    this.saleDAO = saleDAO;
-    this.prodQDAO = prodQDAO;
-    this.inventoryDAO = inventoryDAO;
-}
+        for (ProductQuantity item : itens) {
+            Inventory stock = inventoryDAO.find(item.getProduto().getCode());
 
-@Override
-public Boolean register(Sale sale) throws DAOException, SQLException, TipoChaveNaoEncontradaException {
-    return this.dao.register(sale);
-}
+            if (stock == null) {
+                throw new DAOException("ESTOQUE NÃO ENCONTRADO PARA O PRODUTO");
+            }
 
-@Override
-public Sale find(String codigo) throws DAOException, TableException, MoreThanOneRegisterException, SQLException {
-    return this.dao.find(codigo);
-}
-
-@Override
-public void update(Sale sale) throws DAOException, SQLException, TipoChaveNaoEncontradaException {
-    this.dao.update(sale);
-}
-
-@Override
-public void remove(String codigo) throws DAOException, SQLException {
-    this.dao.remove(codigo);
-}
-
-@Override
-public Collection<Sale> findAll() {
-    try {
-        return this.dao.findAll();
-    } catch (Exception e) {
-        throw new RuntimeException(e);
-    }
-}
-
-public void finalizeSale(Sale sale) throws DAOException, TableException, MoreThanOneRegisterException, SQLException, TipoChaveNaoEncontradaException {
-    saleDAO.finishSale(sale);
-    List<ProductQuantity> itens = prodQDAO.findAll();
-
-    for (ProductQuantity item : itens) {
-        Inventory stock = inventoryDAO.find(item.getProduto().getCode());
-
-        if (stock == null) {
-            throw new DAOException("ESTOQUE NÃO ENCONTRADO PARA O PRODUTO");
+            if (stock.getAvailableQuantity() < item.getQuantidade()) {
+                throw new DAOException("ESTOQUE INSUFICIENTE PARA O PRODUTO " + item.getProduto().getNome());
+            } else {
+                stock.removeStock(item.getQuantidade());
+                inventoryDAO.update(stock);
+            }
         }
-        stock.removeStock(item.getQuantidade());
-        inventoryDAO.update(stock);
+    }
+
+    public void cancelSale(Sale sale) throws DAOException, SQLException, TipoChaveNaoEncontradaException, TableException, MoreThanOneRegisterException {
+        if (sale.getStatus() == Sale.Status.CONCLUIDA) {
+            List<ProductQuantity> itens = prodQDAO.findBySale(sale.getId());
+
+            for (ProductQuantity item : itens) {
+                Inventory stock = inventoryDAO.find(item.getProduto().getCode());
+
+                if (stock == null) {
+                    throw new DAOException("ESTOQUE NÃO ENCONTRADO PARA O PRODUTO: " + item.getProduto().getCode());
+                }
+
+                stock.addStock(item.getQuantidade());
+                inventoryDAO.update(stock);
+            }
+            saleDAO.cancelSale(sale);
+        }
     }
 }
-
-public void cancelSale(Sale sale) throws DAOException, SQLException {
-    saleDAO.cancelSale(sale);
-}
- */

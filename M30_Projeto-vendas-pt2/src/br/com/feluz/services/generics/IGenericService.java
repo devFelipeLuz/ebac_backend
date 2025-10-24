@@ -20,5 +20,5 @@ public interface IGenericService<T extends Persistence, V extends Serializable> 
 
     void remove(V valor) throws DAOException, SQLException;
 
-    Collection<T> findAll() throws DAOException;
+    Collection<T> findAll() throws DAOException, SQLException;
 }

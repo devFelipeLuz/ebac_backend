@@ -127,31 +127,25 @@ public abstract class GenericDAO<T extends Persistence, V extends Serializable> 
     }
 
     private Long validarMaisDeUmRegistro(V value) throws MoreThanOneRegisterException, TableException, TipoChaveNaoEncontradaException, DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
-        Long count = null;
+        Long count = 0L;
 
-        try {
-            stm = dataBase.prepareStatement("SELECT count(*) FROM " + getTableName() + " WHERE " + getNomeCampoChave(getTipoClasse()) + " = ?");
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("SELECT count(*) FROM " + getTableName() + " WHERE " + getNomeCampoChave(getTipoClasse()) + " = ?")) {
             setParamsSelect(stm, value);
-            rs = stm.executeQuery();
 
-            if (rs.next()) {
-                count = rs.getLong(1);
-
-                if (count > 1) {
-                    throw new MoreThanOneRegisterException("ENCONTRADO MAIS DE UM REGISTRO DE " + getTableName());
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    count = rs.getLong(1);
+                    if (count > 1) {
+                        throw new MoreThanOneRegisterException("ENCONTRADO MAIS DE UM REGISTRO DE " + getTableName());
+                    }
                 }
             }
             return count;
 
         } catch (SQLException e) {
-            e.printStackTrace();
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
+            throw new DAOException("ERRO AO EXECUTAR VALIDAÇÃO DE REGISTRO", e);
         }
-        return count;
     }
 
     private String getTableName() throws TableException {
@@ -181,12 +175,10 @@ public abstract class GenericDAO<T extends Persistence, V extends Serializable> 
 
 
     @Override
-    public Boolean register(T entity) throws DAOException, SQLException, TipoChaveNaoEncontradaException {
-        Connection dataBase = null;
-        PreparedStatement stm = null;
-        try {
-            dataBase = ConnectionDB.getConnection();
-            stm = dataBase.prepareStatement(getQueryInsert(), Statement.RETURN_GENERATED_KEYS);
+    public Boolean register(T entity) throws SQLException, TipoChaveNaoEncontradaException, DAOException {
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQueryInsert(), Statement.RETURN_GENERATED_KEYS)) {
             setParamsInsert(stm, entity);
             int rowsAffected = stm.executeUpdate();
 
@@ -202,127 +194,192 @@ public abstract class GenericDAO<T extends Persistence, V extends Serializable> 
 
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CADASTRAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
         return false;
     }
 
     @Override
-    public T find(V value) throws MoreThanOneRegisterException, TableException, DAOException, SQLException {
-        Connection dataBase = null;
-        PreparedStatement stm = null;
-        ResultSet rs = null;
-        try {
-            validarMaisDeUmRegistro(value);
-            dataBase = ConnectionDB.getConnection();
-            stm = dataBase.prepareStatement("SELECT * FROM " + getTableName() + " WHERE " + getNomeCampoChave(getTipoClasse()) + " = ?");
-            setParamsSelect(stm, value);
-            rs = stm.executeQuery();
+    public Boolean register(T entity, Connection dataBase) throws DAOException {
 
-            if (rs.next()) {
-                T entity = getTipoClasse().getConstructor(null).newInstance(null);
-                Field[] fields = entity.getClass().getDeclaredFields();
-                for (Field field : fields) {
-                    if (field.isAnnotationPresent(ColunaTabela.class)) {
-                        ColunaTabela coluna = field.getAnnotation(ColunaTabela.class);
-                        String dbName = coluna.dbName();
-                        String javaSetName = coluna.setJavaName();
-                        Class<?> classField = field.getType();
-                        try {
-                            Method method = entity.getClass().getMethod(javaSetName, classField);
-                            setValueByType(entity, method, classField, rs, dbName);
-                        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException |
-                                 TipoElementoNaoConhecidoException e) {
-                            throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-                        }
+        try (PreparedStatement stm = dataBase.prepareStatement(getQueryInsert(), Statement.RETURN_GENERATED_KEYS)) {
+            setParamsInsert(stm, entity);
+            int rowsAffected = stm.executeUpdate();
+
+            if (rowsAffected > 0) {
+                try (ResultSet rs = stm.getGeneratedKeys()) {
+                    if (rs.next()) {
+                        Persistence per = (Persistence) entity;
+                        per.setId(rs.getLong(1));
                     }
                 }
-                return entity;
+                return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            throw new DAOException("ERRO AO CADASTRAR OBJETO", e);
+        }
+    }
+
+    @Override
+    public T find(V value) throws MoreThanOneRegisterException, TableException, DAOException, SQLException {
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("SELECT * FROM " + getTableName() + " WHERE " + getNomeCampoChave(getTipoClasse()) + " = ?")) {
+            setParamsSelect(stm, value);
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    T entity = getTipoClasse().getConstructor(null).newInstance(null);
+                    Field[] fields = entity.getClass().getDeclaredFields();
+                    for (Field field : fields) {
+                        if (field.isAnnotationPresent(ColunaTabela.class)) {
+                            ColunaTabela coluna = field.getAnnotation(ColunaTabela.class);
+                            String dbName = coluna.dbName();
+                            String javaSetName = coluna.setJavaName();
+                            Class<?> classField = field.getType();
+                            try {
+                                Method method = entity.getClass().getMethod(javaSetName, classField);
+                                setValueByType(entity, method, classField, rs, dbName);
+                            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException |
+                                     TipoElementoNaoConhecidoException e) {
+                                throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
+                            }
+                        }
+                    }
+                    return entity;
+                }
+            }
+        } catch (SQLException | InstantiationException | IllegalAccessException | IllegalArgumentException |
+                 InvocationTargetException | NoSuchMethodException | SecurityException |
+                 TipoChaveNaoEncontradaException e) {
+            throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
+        }
+        return null;
+    }
+
+    @Override
+    public T find(V value, Connection dataBase) throws TableException, DAOException {
+
+        try (PreparedStatement stm = dataBase.prepareStatement("SELECT * FROM " + getTableName() + " WHERE " + getNomeCampoChave(getTipoClasse()) + " = ?")) {
+
+            setParamsSelect(stm, value);
+
+            try (ResultSet rs = stm.executeQuery()) {
+
+                if (rs.next()) {
+                    T entity = getTipoClasse().getConstructor(null).newInstance(null);
+                    Field[] fields = entity.getClass().getDeclaredFields();
+
+                    for (Field field : fields) {
+                        if (field.isAnnotationPresent(ColunaTabela.class)) {
+                            ColunaTabela coluna = field.getAnnotation(ColunaTabela.class);
+                            String dbName = coluna.dbName();
+                            String javaSetName = coluna.setJavaName();
+                            Class<?> classField = field.getType();
+
+                            try {
+                                Method method = entity.getClass().getMethod(javaSetName, classField);
+                                setValueByType(entity, method, classField, rs, dbName);
+                            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException |
+                                     TipoElementoNaoConhecidoException e) {
+                                throw new DAOException("ERRO AO CONSULTAR OBJETO DURANTE O MAPEAMENTO", e);
+                            }
+                        }
+                    }
+                    return entity;
+                }
             }
 
         } catch (SQLException | InstantiationException | IllegalAccessException | IllegalArgumentException |
                  InvocationTargetException | NoSuchMethodException | SecurityException |
                  TipoChaveNaoEncontradaException e) {
-            throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
+            throw new DAOException("ERRO AO CONSULTAR OBJETO OU PREPARAR QUERY", e);
         }
         return null;
     }
 
     @Override
     public void update(T entity) throws TipoChaveNaoEncontradaException, DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        try {
-            stm = dataBase.prepareStatement(getQueryUpdate());
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQueryUpdate())) {
             setParamsUpdate(stm, entity);
             int rowsAffected = stm.executeUpdate();
         } catch (SQLException e) {
             throw new DAOException("ERRO AO ALTERAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
+        }
+    }
+
+    @Override
+    public void update(T entity, Connection dataBase) throws DAOException {
+        try (PreparedStatement stm = dataBase.prepareStatement(getQueryUpdate())) {
+            setParamsUpdate(stm, entity);
+            int rowsAffected = stm.executeUpdate();
+        } catch (SQLException e) {
+            throw new DAOException("ERRO AO ALTERAR OBJETO", e);
         }
     }
 
     @Override
     public void remove(V value) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        try {
-            stm = dataBase.prepareStatement(getQueryDelete());
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQueryDelete())) {
             setParamsDelete(stm, value);
             int rowsAffected = stm.executeUpdate();
 
         } catch (SQLException e) {
             throw new DAOException("ERRO AO EXCLUIR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
+        }
+    }
+
+    @Override
+    public void remove(V value, Connection dataBase) throws DAOException {
+        try (PreparedStatement stm = dataBase.prepareStatement(getQueryDelete())) {
+            setParamsDelete(stm, value);
+            int rowsAffected = stm.executeUpdate();
+        } catch (SQLException e) {
+            throw new DAOException("ERRO AO REMOVER OBJETO", e);
         }
     }
 
     @Override
     public Collection<T> findAll() throws DAOException, SQLException {
         List<T> list = new ArrayList<>();
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            stm = dataBase.prepareStatement("SELECT * FROM " + getTableName());
-            rs = stm.executeQuery();
 
-            while (rs.next()) {
-                T entity = getTipoClasse().getConstructor(null).newInstance(null);
-                Field[] fields = entity.getClass().getDeclaredFields();
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("SELECT * FROM " + getTableName())) {
 
-                for (Field field : fields) {
+            try (ResultSet rs = stm.executeQuery()) {
+                while (rs.next()) {
+                    T entity = getTipoClasse().getConstructor(null).newInstance(null);
+                    Field[] fields = entity.getClass().getDeclaredFields();
 
-                    if (field.isAnnotationPresent(ColunaTabela.class)) {
-                        ColunaTabela coluna = field.getAnnotation(ColunaTabela.class);
-                        String dbName = coluna.dbName();
-                        String javaSetName = coluna.setJavaName();
-                        Class<?> classField = field.getType();
+                    for (Field field : fields) {
 
-                        try {
-                            Method method = entity.getClass().getMethod(javaSetName, classField);
-                            setValueByType(entity, method, classField, rs, dbName);
-                        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException |
-                                 TipoElementoNaoConhecidoException e) {
-                            throw new DAOException("ERRO AO LISTAR OBJETOS", e);
+                        if (field.isAnnotationPresent(ColunaTabela.class)) {
+                            ColunaTabela coluna = field.getAnnotation(ColunaTabela.class);
+                            String dbName = coluna.dbName();
+                            String javaSetName = coluna.setJavaName();
+                            Class<?> classField = field.getType();
+
+                            try {
+                                Method method = entity.getClass().getMethod(javaSetName, classField);
+                                setValueByType(entity, method, classField, rs, dbName);
+                            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException |
+                                     TipoElementoNaoConhecidoException e) {
+                                throw new DAOException("ERRO AO LISTAR OBJETOS", e);
+                            }
                         }
                     }
+                    list.add(entity);
                 }
-                list.add(entity);
             }
+
         } catch (SQLException | InstantiationException | IllegalAccessException | IllegalArgumentException |
                  InvocationTargetException | NoSuchMethodException | SecurityException | TableException e) {
             throw new DAOException("ERRO AO LISTAR OBJETOS", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
-
         return list;
     }
 }

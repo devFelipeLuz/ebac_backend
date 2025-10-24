@@ -33,40 +33,52 @@ public class Product implements Persistence {
     public String getCode() {
         return code;
     }
+
     public void setCode(String codigo) {
         this.code = codigo;
     }
+
     public String getNome() {
         return name;
     }
+
     public void setNome(String name) {
         this.name = name;
     }
+
     public String getDescricao() {
         return description;
     }
+
     public void setDescricao(String description) {
         this.description = description;
     }
+
     public BigDecimal getValor() {
         return valor;
     }
+
     public void setValor(BigDecimal valor) {
         this.valor = valor;
     }
+
     @Override
-    public Long getId(){
+    public Long getId() {
         return id;
     }
+
     @Override
     public void setId(Long id) {
         this.id = id;
     }
+
     public String getCategoria() {
         return category;
     }
+
     public void setCategoria(String category) {
         this.category = category;
     }
+
 }
 

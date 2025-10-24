@@ -44,9 +44,30 @@ public class SaleDAO extends GenericDAO<Sale, String> implements ISaleDAO {
         stmInsert.setString(5, entity.getStatus().name());
     }
 
+    private String sqlBaseSelect() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT V.ID AS ID_VENDA, V.CODIGO AS CODIGO_VENDA, V.VALOR_TOTAL, V.DATA_VENDA, V.STATUS_VENDA, ");
+        sb.append("C.ID AS ID_CLIENTE, C.NOME, C.CPF, C.TEL, C.EMAIL, C.ENDERECO, C.NUMERO, C.CIDADE, C.ESTADO ");
+        sb.append("FROM TB_VENDA V ");
+        sb.append("INNER JOIN TB_CLIENTE C ON V.ID_CLIENTE_FK = C.ID ");
+        return sb.toString();
+    }
+
     @Override
     protected void setParamsSelect(PreparedStatement stmSelect, String value) throws SQLException {
         stmSelect.setString(1, value);
+    }
+
+    private String getQuerySelectSaleProduct() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT PQ.ID AS ID_PRODUTO_QUANTIDADE, PQ.QUANTIDADE, PQ.VALOR_TOTAL, ");
+        sb.append("P.ID AS ID_PRODUTO, P.CODIGO AS CODIGO_PRODUTO, P.NOME, P.DESCRICAO, P.CATEGORIA, P.VALOR, ");
+        sb.append("V.ID AS ID_VENDA, V.CODIGO AS CODIGO_VENDA, V.ID_CLIENTE_FK, V.VALOR_TOTAL, V.DATA_VENDA, V.STATUS_VENDA ");
+        sb.append("FROM TB_PRODUTO_QUANTIDADE PQ ");
+        sb.append("INNER JOIN TB_PRODUTO P ON P.ID = PQ.ID_PRODUTO_FK ");
+        sb.append("INNER JOIN TB_VENDA V ON PQ.ID_VENDA_FK = V.ID ");
+        sb.append("WHERE PQ.ID_VENDA_FK = ?");
+        return sb.toString();
     }
 
     @Override
@@ -80,11 +101,9 @@ public class SaleDAO extends GenericDAO<Sale, String> implements ISaleDAO {
 
     @Override
     public Boolean register(Sale entity) throws TipoChaveNaoEncontradaException, DAOException {
-        Connection dataBase = null;
-        PreparedStatement stm = null;
-        try {
-            dataBase = ConnectionDB.getConnection();
-            stm = dataBase.prepareStatement(getQueryInsert(), Statement.RETURN_GENERATED_KEYS);
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQueryInsert(), Statement.RETURN_GENERATED_KEYS)) {
             setParamsInsert(stm, entity);
             int rowsAffected = stm.executeUpdate();
 
@@ -103,34 +122,26 @@ public class SaleDAO extends GenericDAO<Sale, String> implements ISaleDAO {
             }
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CADASTRAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
         return false;
     }
 
     @Override
     public Sale find(String value) throws DAOException, SQLException {
-        StringBuilder sb = sqlBaseSelect();
-        sb.append("WHERE V.CODIGO = ? ");
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            stm = dataBase.prepareStatement(sb.toString());
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(sqlBaseSelect() + "WHERE V.CODIGO = ?")) {
             setParamsSelect(stm, value);
-            rs = stm.executeQuery();
 
-            if (rs.next()) {
-                Sale sale = SaleFactory.convert(rs);
-                findAssociationSaleProduct(dataBase, sale);
-                return sale;
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    Sale sale = SaleFactory.convert(rs);
+                    findAssociationSaleProduct(dataBase, sale);
+                    return sale;
+                }
             }
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
         return null;
     }
@@ -138,175 +149,136 @@ public class SaleDAO extends GenericDAO<Sale, String> implements ISaleDAO {
     @Override
     public Collection<Sale> findAll() throws DAOException, SQLException {
         List<Sale> list = new ArrayList<>();
-        StringBuilder sb = sqlBaseSelect();
-        Connection dataBase = null;
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            dataBase = ConnectionDB.getConnection();
-            stm = dataBase.prepareStatement(sb.toString());
-            rs = stm.executeQuery();
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(sqlBaseSelect())) {
 
-            while (rs.next()) {
-                Sale sale = SaleFactory.convert(rs);
-                //findAssociationSaleProduct(dataBase, sale);
-                list.add(sale);
+            try (ResultSet rs = stm.executeQuery()) {
+                while (rs.next()) {
+                    Sale sale = SaleFactory.convert(rs);
+                    //findAssociationSaleProduct(dataBase, sale);
+                    list.add(sale);
+                }
             }
-
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
         return list;
     }
 
     @Override
     public void update(Sale entity) throws SQLException, DAOException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
+        Connection dataBase = null;
 
         try {
+            dataBase = ConnectionDB.getConnection();
             dataBase.setAutoCommit(false);
 
-            stm = dataBase.prepareStatement(getQueryUpdate());
-            setParamsUpdate(stm, entity);
-            stm.executeUpdate();
-            stm.close();
+            try (PreparedStatement stmUpdate = dataBase.prepareStatement(getQueryUpdate())) {
+                setParamsUpdate(stmUpdate, entity);
+                stmUpdate.executeUpdate();
+            }
 
-            stm = dataBase.prepareStatement("DELETE FROM TB_PRODUTO_QUANTIDADE WHERE ID_VENDA_FK = ?");
-            stm.setLong(1, entity.getId());
-            stm.executeUpdate();
-            stm.close();
+            try (PreparedStatement stmDelete = dataBase.prepareStatement("DELETE FROM TB_PRODUTO_QUANTIDADE WHERE ID_VENDA_FK = ?")) {
+                stmDelete.setLong(1, entity.getId());
+                stmDelete.executeUpdate();
+            }
 
             StringBuilder sb = new StringBuilder();
             sb.append("INSERT INTO TB_PRODUTO_QUANTIDADE (ID_VENDA_FK, ID_PRODUTO_FK, QUANTIDADE, VALOR_TOTAL)" + "\n");
             sb.append("VALUES (?,?,?,?)");
-            stm = dataBase.prepareStatement(sb.toString());
 
-            for (ProductQuantity prodQ : entity.getProdutos()) {
-                stm.setLong(1, entity.getId());
-                stm.setLong(2, prodQ.getProduto().getId());
-                stm.setInt(3, prodQ.getQuantidade());
-                stm.setBigDecimal(4, prodQ.getValorTotal());
-                stm.addBatch();
+            try (PreparedStatement stmInsertBatch = dataBase.prepareStatement(sb.toString())) {
+                for (ProductQuantity prodQ : entity.getProdutos()) {
+                    stmInsertBatch.setLong(1, entity.getId());
+                    stmInsertBatch.setLong(2, prodQ.getProduto().getId());
+                    stmInsertBatch.setInt(3, prodQ.getQuantidade());
+                    stmInsertBatch.setBigDecimal(4, prodQ.getValorTotal());
+                    stmInsertBatch.addBatch();
+                }
+                stmInsertBatch.executeBatch();
             }
-            stm.executeBatch();
-
             dataBase.commit();
 
         } catch (SQLException e) {
-            try {
-                dataBase.rollback();
-                throw new DAOException("ERRO AO ATUALIZAR O OBJETO (Transação desfeita)", e);
-            } catch (SQLException rollBackEx) {
-                throw new DAOException("ERRO FATAL: Rollback falhou após erro de UPDATE", rollBackEx);
-            }
-        } finally {
-            try {
-                if (dataBase != null) {
-                    dataBase.setAutoCommit(true);
+            if (dataBase != null) {
+                try {
+                    dataBase.rollback();
+                } catch (SQLException rollbackEx) {
+                    throw new DAOException("ERRO FATAL: Rollback falhou após erro de UPDATE", rollbackEx);
                 }
-            } catch (SQLException e) {
-
             }
-            closeConnectionDB(dataBase, stm, null);
+            throw new DAOException("ERRO AO ATUALIZAR O OBJETO (Transação desfeita)", e);
+
+        } finally {
+            if (dataBase != null) {
+                try {
+                    dataBase.setAutoCommit(true);
+                    dataBase.close();
+                } catch (SQLException ignored) {
+
+                }
+            }
         }
     }
 
     @Override
     public void remove(String valor) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
 
-        try {
-            stm = dataBase.prepareStatement(getQueryDelete());
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQueryDelete())) {
             setParamsDelete(stm, valor);
             stm.executeUpdate();
         } catch (SQLException e) {
             throw new DAOException("ERRO AO REMOVER OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
     }
 
     @Override
     public void finishSale(Sale sale) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
 
-        try {
-            String sql = "UPDATE TB_VENDA SET STATUS_VENDA = ? WHERE ID = ?";
-            stm = dataBase.prepareStatement(sql);
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("UPDATE TB_VENDA SET STATUS_VENDA = ? WHERE ID = ?")) {
             stm.setString(1, Sale.Status.CONCLUIDA.name());
             stm.setLong(2, sale.getId());
             stm.executeUpdate();
         } catch (SQLException e) {
             throw new DAOException("ERRO AO ATUALIZAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
     }
 
     @Override
     public void cancelSale(Sale sale) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
 
-        try {
-            String sql = "UPDATE TB_VENDA SET STATUS_VENDA = ? WHERE ID = ?";
-            stm = dataBase.prepareStatement(sql);
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("UPDATE TB_VENDA SET STATUS_VENDA = ? WHERE ID = ?")) {
             stm.setString(1, Sale.Status.CANCELADA.name());
             stm.setLong(2, sale.getId());
             stm.executeUpdate();
         } catch (SQLException e) {
             throw new DAOException("ERRO AO ATUALIZAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
     }
 
     private void findAssociationSaleProduct(Connection dataBase, Sale sale) throws DAOException {
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            StringBuilder sb = new StringBuilder();
-            sb.append("SELECT PQ.ID AS ID_PRODUTO_QUANTIDADE, PQ.QUANTIDADE, PQ.VALOR_TOTAL, ");
-            sb.append("P.ID AS ID_PRODUTO, P.CODIGO AS CODIGO_PRODUTO, P.NOME, P.DESCRICAO, P.CATEGORIA, P.VALOR, ");
-            sb.append("V.ID AS ID_VENDA, V.CODIGO AS CODIGO_VENDA, V.ID_CLIENTE_FK, V.VALOR_TOTAL, V.DATA_VENDA, V.STATUS_VENDA ");
-            sb.append("FROM TB_PRODUTO_QUANTIDADE PQ ");
-            sb.append("INNER JOIN TB_PRODUTO P ON P.ID = PQ.ID_PRODUTO_FK ");
-            sb.append("INNER JOIN TB_VENDA V ON PQ.ID_VENDA_FK = V.ID ");
-            sb.append("WHERE PQ.ID_VENDA_FK = ?");
-            stm = dataBase.prepareStatement(sb.toString());
+        try (PreparedStatement stm = dataBase.prepareStatement(getQuerySelectSaleProduct()
+        )) {
             stm.setLong(1, sale.getId());
-            rs = stm.executeQuery();
-            List<ProductQuantity> products = new ArrayList<>();
+            try (ResultSet rs = stm.executeQuery()) {
+                List<ProductQuantity> products = new ArrayList<>();
 
-            while (rs.next()) {
-                ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
-                prodQ.setSale(sale);
-                products.add(prodQ);
+                while (rs.next()) {
+                    ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
+                    prodQ.setSale(sale);
+                    products.add(prodQ);
+                }
+                System.out.println(products.size());
+                sale.setProdutos(products);
+                sale.recalcValorTotalVenda();
             }
-            System.out.println(products.size());
-            sale.setProdutos(products);
-            sale.recalcValorTotalVenda();
-
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
-    }
-
-    private StringBuilder sqlBaseSelect() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT V.ID AS ID_VENDA, V.CODIGO AS CODIGO_VENDA, V.VALOR_TOTAL, V.DATA_VENDA, V.STATUS_VENDA, ");
-        sb.append("C.ID AS ID_CLIENTE, C.NOME, C.CPF, C.TEL, C.EMAIL, C.ENDERECO, C.NUMERO, C.CIDADE, C.ESTADO ");
-        sb.append("FROM TB_VENDA V ");
-        sb.append("INNER JOIN TB_CLIENTE C ON V.ID_CLIENTE_FK = C.ID ");
-        return sb;
     }
 }

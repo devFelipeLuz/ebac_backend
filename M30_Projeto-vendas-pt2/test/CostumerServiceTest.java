@@ -1,4 +1,6 @@
 import br.com.feluz.exceptions.DAOException;
+import br.com.feluz.exceptions.MoreThanOneRegisterException;
+import br.com.feluz.exceptions.TableException;
 import br.com.feluz.exceptions.TipoChaveNaoEncontradaException;
 import dao.CostumerDAOMock;
 import br.com.feluz.dao.interfaces.ICostumerDAO;
@@ -40,7 +42,7 @@ public class CostumerServiceTest {
     }
 
     @Test
-    public void searchCostumer() throws DAOException, SQLException {
+    public void searchCostumer() throws DAOException, SQLException, TableException, MoreThanOneRegisterException {
         Costumer findCostumer = costumerService.find(costumer.getCpf());
         Assert.assertNotNull(findCostumer);
     }

@@ -406,6 +406,7 @@ public class SaleDAOTest {
         }
     }
 
+
     private Product createProduct(String codigo, BigDecimal valor) {
         Product mockProduct = new Product();
         mockProduct.setCode(codigo);

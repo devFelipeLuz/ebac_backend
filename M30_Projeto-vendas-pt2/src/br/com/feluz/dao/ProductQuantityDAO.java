@@ -5,6 +5,7 @@ import br.com.feluz.dao.factory.ProductQuantityFactory;
 import br.com.feluz.dao.generics.GenericDAO;
 import br.com.feluz.dao.interfaces.IProductQuantityDAO;
 import br.com.feluz.dao.jdbc.ConnectionDB;
+import br.com.feluz.domain.Inventory;
 import br.com.feluz.domain.Product;
 import br.com.feluz.domain.ProductQuantity;
 import br.com.feluz.exceptions.DAOException;
@@ -46,6 +47,17 @@ public class ProductQuantityDAO extends GenericDAO<ProductQuantity, Long> implem
         stmInsert.setBigDecimal(4, entity.getValorTotal());
     }
 
+    public String getQuerySelect() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT PQ.ID AS ID_PRODUTO_QUANTIDADE, PQ.QUANTIDADE, PQ.VALOR_TOTAL, ");
+        sb.append("P.ID AS ID_PRODUTO, P.NOME, P.CODIGO AS CODIGO_PRODUTO, P.DESCRICAO, P.VALOR, P.CATEGORIA, ");
+        sb.append("V.ID AS ID_VENDA, V.CODIGO AS CODIGO_VENDA, V.DATA_VENDA, V.STATUS_VENDA ");
+        sb.append("FROM TB_PRODUTO_QUANTIDADE PQ ");
+        sb.append("INNER JOIN TB_PRODUTO P ON P.ID = PQ.ID_PRODUTO_FK ");
+        sb.append("INNER JOIN TB_VENDA V ON V.ID = PQ.ID_VENDA_FK ");
+        return sb.toString();
+    }
+
     @Override
     protected void setParamsSelect(PreparedStatement stmSelect, Long value) throws SQLException {
         stmSelect.setLong(1, value);
@@ -80,24 +92,19 @@ public class ProductQuantityDAO extends GenericDAO<ProductQuantity, Long> implem
     @Override
     public List<ProductQuantity> findAll() throws DAOException, SQLException {
         List<ProductQuantity> list = new ArrayList<>();
-        Connection dataBase = null;
-        PreparedStatement stm = null;
-        ResultSet rs = null;
 
-        try {
-            dataBase = ConnectionDB.getConnection();
-            stm = dataBase.prepareStatement(getQuerySelect());
-            rs = stm.executeQuery();
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQuerySelect())) {
 
-            while (rs.next()) {
-                ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
-                //findAssociationPQuantityProduct(dataBase, prodQ);
-                list.add(prodQ);
+            try (ResultSet rs = stm.executeQuery()) {
+                while (rs.next()) {
+                    ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
+                    //findAssociationPQuantityProduct(dataBase, prodQ);
+                    list.add(prodQ);
+                }
             }
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm , rs);
         }
         return list;
     }
@@ -129,55 +136,52 @@ public class ProductQuantityDAO extends GenericDAO<ProductQuantity, Long> implem
         }
     }
 
-    public ProductQuantity findBySaleAndProduct(Long saleId, Long productId) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
-        ResultSet rs = null;
+    public List<ProductQuantity> findBySale(Long saleId) throws DAOException {
+        List<ProductQuantity> list = null;
 
-        try {
-            StringBuilder sb = new StringBuilder(getQuerySelect());
-            sb.append("WHERE PQ.ID_VENDA_FK = ? AND PQ.ID_PRODUTO_FK = ?");
-            stm = dataBase.prepareStatement(sb.toString());
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQuerySelect() + "WHERE PQ.ID_VENDA_FK = ?")) {
+            stm.setLong(1, saleId);
+
+            try (ResultSet rs = stm.executeQuery()) {
+                while (rs.next()) {
+                    ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
+                    list.add(prodQ);
+                }
+            }
+        } catch (SQLException e) {
+            throw new DAOException("ERRO AO CONSULTAR OBJETO", e);
+        }
+        return list;
+    }
+
+    public ProductQuantity findBySaleAndProduct(Long saleId, Long productId) throws DAOException, SQLException {
+
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement(getQuerySelect() + "WHERE PQ.ID_VENDA_FK = ? AND PQ.ID_PRODUTO_FK = ?")) {
             stm.setLong(1, saleId);
             stm.setLong(2, productId);
-            rs = stm.executeQuery();
-
-            if (rs.next()) {
-                ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
-                return prodQ;
+            try (ResultSet rs = stm.executeQuery()) {
+                if (rs.next()) {
+                    ProductQuantity prodQ = ProductQuantityFactory.convert(rs);
+                    return prodQ;
+                }
             }
         } catch (SQLException e) {
             throw new DAOException("ERRO AO CONSULTAR O OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, rs);
         }
         return null;
     }
 
     public void removeBySaleAndProductId(Long saleId, Long productId) throws DAOException, SQLException {
-        Connection dataBase = ConnectionDB.getConnection();
-        PreparedStatement stm = null;
 
-        try {
-            stm = dataBase.prepareStatement("DELETE FROM TB_PRODUTO_QUANTIDADE WHERE ID_VENDA_FK = ? AND ID_PRODUTO_FK = ?");
+        try (Connection dataBase = ConnectionDB.getConnection();
+             PreparedStatement stm = dataBase.prepareStatement("DELETE FROM TB_PRODUTO_QUANTIDADE WHERE ID_VENDA_FK = ? AND ID_PRODUTO_FK = ?")) {
             stm.setLong(1, saleId);
             stm.setLong(2, productId);
             stm.executeUpdate();
         } catch (SQLException e) {
             throw new DAOException("ERRO AO REMOVER OBJETO", e);
-        } finally {
-            closeConnectionDB(dataBase, stm, null);
         }
-    }
-
-    public String getQuerySelect() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT PQ.ID AS ID_PRODUTO_QUANTIDADE, P.ID AS ID_PRODUTO, V.ID AS ID_VENDA, PQ.QUANTIDADE, ");
-        sb.append("PQ.VALOR_TOTAL, P.CODIGO AS CODIGO_PRODUTO, P.NOME, P.DESCRICAO, ");
-        sb.append("P.VALOR, P.CATEGORIA, V.CODIGO AS CODIGO_VENDA, V.DATA_VENDA, V.STATUS_VENDA ");
-        sb.append("FROM TB_PRODUTO_QUANTIDADE PQ ");
-        sb.append("INNER JOIN TB_PRODUTO P ON P.ID = PQ.ID_PRODUTO_FK ");
-        sb.append("INNER JOIN TB_VENDA V ON V.ID = PQ.ID_VENDA_FK ");
-        return sb.toString();
     }
 }

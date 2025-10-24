@@ -43,7 +43,6 @@ public class Sale implements Persistence {
     @ColunaTabela(dbName = "id_cliente_fk", setJavaName = "setIdClienteFk")
     private Costumer cliente;
 
-
     private List<ProductQuantity> produtos;
 
     @ColunaTabela(dbName = "valor_total", setJavaName = "setValorTotal")
