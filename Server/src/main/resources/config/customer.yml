@@ -1,0 +1,12 @@
+server:
+  port: 8081
+  wait-time-in-ms-when-sync-empty: 3000
+
+spring: # Apenas as configurações internas do Spring
+  data:
+    mongodb:
+      uri: mongodb://admin:admin@127.0.0.1:27017/ebac?authSource=admin&retryWrites=true&w=majority
+      database: customer
+      auto-index-creation: true
+
+application-version: 1.0

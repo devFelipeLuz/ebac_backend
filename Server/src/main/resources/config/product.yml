@@ -1,0 +1,10 @@
+server:
+  port: 8082
+  wait-time-in-ms-when-sync-empty: 3000
+
+spring: # Corrigido: Removida a repetição 'spring:'
+  data:
+    mongodb:
+      uri: mongodb://admin:admin@127.0.0.1:27017/ebac?authSource=admin&retryWrites=true&w=majority
+      database: product # Banco de dados específico para o Produto
+      auto-index-creation: true
